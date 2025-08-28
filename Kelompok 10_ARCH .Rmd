@@ -1,0 +1,238 @@
+---
+title: "ARCH"
+author: "KELOMPOK 10 ADW"
+date: "2024-11-05"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Import Library
+```{r}
+library(FSA)
+library(knitr)
+library(tidyverse)
+library(ggridges)
+library(forecast)
+library(FinTS)
+library(rugarch)
+library(foreign)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(knitr)
+library(dynlm)
+library(TSA)
+library(fGarch)
+library(quantmod)
+library(zoo)
+library(xts)
+library(PerformanceAnalytics)
+library(rugarch)
+library(aTSA)
+library(TSA)
+```
+
+## Data Jasamarga 5 Tahun dari januari 2019 sampai januari 2024
+```{r}
+getSymbols("JSMR.JK",from = "2019-01-01",to = "2024-01-01")
+```
+## data awal aktual
+```{r}
+chartSeries(JSMR.JK)
+```
+
+## Import Data
+```{r}
+df <- JSMR.JK$JSMR.JK.Close
+df <- na.approx(JSMR.JK$JSMR.JK.Close)
+df <- ts(df, frequency = 12)
+head(df)
+```
+
+## Plot Stasioneritas
+```{r}
+autoplot(df)
+```
+
+
+```{r}
+adf.test(df)
+```
+**analisis** : terlihat bahwa data tidak stasioner Nilai p-value untuk semua lag yang diuji tetap di atas tingkat signifikansi umum (α = 0.05), dengan p-value tertinggi mencapai 0.585 dan terendah 0.259. Oleh karena itu perlu differencing.
+
+
+```{r}
+difs <- diff(df)
+plot(difs, main = "Differenced Close Prices", ylab = "Differenced Price", xlab = "Time")
+```
+
+```{r}
+difss<- adf.test(difs)
+print(difss)
+```
+hasil differencing menunjukan bahwa data sudah stasioner ketika di differencing 1 kali
+
+
+## Plot ACF & PACF
+```{r}
+# Plot ACF dan PACF
+par(mfrow = c(1, 2))  # Menyusun dua plot dalam satu baris
+
+# Plot ACF
+acf(difs, main = "ACF JSMR.JK")
+
+# Plot PACF
+pacf(difs, main = "PACF JSMR.JK")
+
+# Kembali ke pengaturan default
+par(mfrow = c(1, 1))
+
+```
+
+## Mencari Model ARIMA TERBAIK
+```{r}
+auto.arima(df)
+```
+Hasil analisis pemodelan ARIMA(2,1,0)(2,0,0)[12] menunjukkan bahwa model ini dapat menjadi kandidat yang baik untuk diterapkan dalam analisis data, mengingat kombinasi dua komponen autoregressive (AR) dan dua komponen musiman (SAR) yang dipilih secara otomatis.
+ 
+```{r}
+# Set model ARIMA hasil yang sudah dihitung
+auto_arima_model <- Arima(df, order = c(2, 1, 0), seasonal = c(2, 0, 0))
+auto_arima_model
+```
+
+## Archtest untuk melihat apakah ada efek ARCH
+```{r}
+ArchTest(difs)
+```
+Ini mengindikasikan bahwa kita dapat menolak hipotesis nol yang menyatakan tidak ada efek ARCH dalam data. Dengan demikian, terdapat bukti kuat bahwa variabilitas residual dalam model ini menunjukkan adanya heteroskedastisitas, yang mengindikasikan bahwa varians dari error model berfluktuasi dan tidak konstan. Oleh karena itu, pendekatan pemodelan yang memperhitungkan efek ARCH atau GARCH perlu dipertimbangkan untuk meningkatkan akurasi analisis dan peramalan
+
+
+### Mencari Model ARCH terbaik
+```{r}
+# Tentukan variasi model ARCH yang ingin diuji
+max_arch_order <- 5  # Misal hingga ARCH(5)
+best_aic <- Inf
+best_model <- NULL
+best_order <- 0
+
+for (i in 1:max_arch_order) {
+  # Tentukan spesifikasi model ARCH(i) untuk data residual ARIMA
+  spec <- ugarchspec(
+    variance.model = list(model = "sGARCH", garchOrder = c(i, 0)),
+    mean.model = list(armaOrder = c(0, 0), include.mean = FALSE)
+  )
+  
+  # Fit model ARCH ke residual ARIMA
+  fit <- ugarchfit(spec = spec, data = residuals(auto_arima_model))
+  
+  # Hitung AIC untuk model ini
+  model_aic <- infocriteria(fit)["Akaike", 1]
+  
+  # Update jika model ARCH baru lebih baik
+  if (model_aic < best_aic) {
+    best_aic <- model_aic
+    best_model <- fit
+    best_order <- i
+  }
+}
+
+# Tampilkan hasil model ARCH terbaik
+cat("Model ARCH terbaik adalah ARCH(", best_order, ") dengan nilai AIC:", best_aic, "\n")
+show(best_model)
+```
+ Model ARCH terbaik yang ditemukan adalah ARCH(5) dengan nilai AIC sebesar 11.83152, menunjukkan bahwa model ini memiliki keseimbangan optimal antara kompleksitas dan kesesuaian data.
+
+
+## MOdelling dengan Garch fitt Arch(5)
+```{r}
+#AR(5)
+model5 <- garchFit( ~arma(2,0)+garch(5,0), data=difs, trace=FALSE)
+summary(model5)
+```
+
+
+### Uji Diagnostik QQ PLOT
+```{r}
+resid_1 = residuals(model5)
+qqnorm(resid_1)
+qqline(resid_1, col = 'red')
+```
+
+**dianalisis** sebagian besar data tampak mengikuti distribusi normal dengan baik, namun terdapat sedikit penyimpangan yang terlihat di awal dan  akhir plot. Penyimpangan ini mengindikasikan bahwa meskipun data secara umum terdistribusi normal, ada kemungkinan adanya outlier atau pengaruh ekstrem di kedua ujung distribusi.
+
+
+```{r}
+prediksi = predict(model5, n.ahead= 30, plot = T)
+```
+
+### Forecast 30 hari kedepan
+```{r}
+prediksi
+```
+
+
+
+## setmodel arch dengan arch (5) dengan cara lain
+```{r}
+# Set up model ARCH(5) sesuai hasil terbaik
+spec_arch5 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(5, 0)),
+  mean.model = list(armaOrder = c(2, 0), include.mean = FALSE)
+)
+
+# Fit model ARCH(5) pada residual ARIMA
+fit_arch5 <- ugarchfit(spec = spec_arch5, data = residuals(auto_arima_model))
+
+# Lakukan prediksi ke depan (misalnya 10 langkah ke depan)
+n_ahead <- 30  # Tentukan jumlah langkah prediksi yang diinginkan
+forecast_arch5 <- ugarchforecast(fit_arch5, n.ahead = n_ahead)
+
+# Ekstrak dan tampilkan hasil prediksi
+predicted_volatility <- forecast_arch5@forecast$sigmaFor  # Prediksi volatilitas
+predicted_variance <- forecast_arch5@forecast$sigmaFor^2  # Prediksi varians
+
+# Output prediksi
+cat("Prediksi volatilitas (deviasi standar) untuk", n_ahead, "langkah ke depan:\n")
+print(predicted_volatility)
+
+cat("\nPrediksi varians untuk", n_ahead, "langkah ke depan:\n")
+print(predicted_variance)
+```
+
+```{r}
+# Tentukan jumlah langkah ke depan untuk prediksi
+n_ahead <- 30
+
+# Lakukan prediksi ke depan dengan model ARCH(5)
+forecast_arch5 <- ugarchforecast(fit_arch5, n.ahead = n_ahead)
+
+# Ekstrak hasil prediksi volatilitas (deviasi standar)
+predicted_volatility <- as.numeric(forecast_arch5@forecast$sigmaFor)
+
+# Buat data untuk grafik
+historical_volatility <- as.numeric(sigma(fit_arch5))  # Volatilitas historis dari model ARCH(5)
+time_index <- c(1:length(historical_volatility), (length(historical_volatility) + 1):(length(historical_volatility) + n_ahead))
+
+# Gabungkan data historis dan prediksi
+volatility_data <- data.frame(
+  Time = time_index,
+  Volatility = c(historical_volatility, predicted_volatility),
+  Type = c(rep("Historical", length(historical_volatility)), rep("Forecast", n_ahead))
+)
+
+# Plot dengan ggplot2
+ggplot(volatility_data, aes(x = Time, y = Volatility, color = Type)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Historical and Forecasted Volatility (ARCH(5) Model)",
+    x = "Time",
+    y = "Volatility (Standard Deviation)"
+  ) +
+  scale_color_manual(values = c("Historical" = "blue", "Forecast" = "red")) +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+volatilitas (deviasi standar) maupun varians akan meningkat selama 10 langkah ke depan, dengan deviasi standar diperkirakan mencapai 96.26 pada T+10 dan varians mencapai 9265.08. Hal ini mencerminkan ekspektasi adanya fluktuasi harga yang lebih besar dan peningkatan risiko dimasa mendatang
+
