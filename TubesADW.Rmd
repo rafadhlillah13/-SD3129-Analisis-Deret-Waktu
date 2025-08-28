@@ -1,0 +1,475 @@
+---
+title: "Prediksi Harga Saham PTBA Menggunakan ARIMA"
+author: "Rafi Fadhlillah"
+date: "2024-10-06"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load necessary libraries
+library(quantmod)
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(zoo)
+library(xts)
+```
+
+## Data
+
+```{r}
+# Mengambil data saham PTBA sejak IPO (tahun 2003)
+getSymbols("PTBA.JK", from = "2003-01-01", to = "2023-12-31")
+ptba_data <- PTBA.JK$PTBA.JK.Close
+ptba_data <- na.approx(PTBA.JK$PTBA.JK.Close)
+tail(ptba_data)
+```
+
+```{r}
+plot(ptba_data, main = "Data Harga Penutupan Saham PTBA 2003 - 2023", xlab = "Tanggal", ylab = "Harga Penutupan", col = "blue")
+
+```
+
+## Uji Stasioner
+
+```{r}
+# Uji ADF
+adf_test <- adf.test(ptba_data)
+print(adf_test)
+```
+
+- P-value sebesar 0.4706 menunjukkan bahwa tidak ada cukup bukti untuk menolak hipotesis nol. Hipotesis nol dalam uji ADF menyatakan bahwa data memiliki akar unit (non-stasioner).
+- Secara umum, jika p-value lebih besar dari 0.05, kita gagal menolak hipotesis nol. Dalam hal ini, p-value 0.4706 stationer bahwa data tidak stasioner.
+
+## Differencing 
+
+```{r}
+# Differencing data saham PTBA untuk membuatnya stasioner
+diff_ptba_data <- diff(ptba_data)
+
+# Menghapus missing values (NA) yang muncul setelah differencing
+diff_ptba_data <- na.omit(diff_ptba_data)
+
+# Plot data setelah differencing
+plot(diff_ptba_data, main = "Data Saham PTBA Setelah Differencing", col = "blue", ylab = "Perbedaan Harga Penutupan")
+```
+
+## Uji Stasioner setelah Differencing
+
+```{r}
+# Uji ADF setelah differencing
+adf_test_diff <- adf.test(diff_ptba_data)
+print(adf_test_diff)
+```
+
+Hasil uji ADF menunjukkan bahwa data stasioner setelah proses diferensiasi dilakukan.
+
+## ACF dan PACF
+
+```{r}
+# Plot ACF dan PACF setelah differencing
+par(mfrow=c(1,2))
+acf(diff_ptba_data, main="ACF Plot setelah Differencing")
+pacf(diff_ptba_data, main="PACF Plot setelah Differencing")
+par(mfrow=c(1,1))
+```
+Berdasarkan plot ACF yang menunjukkan sebagian besar nilai autokorelasi berada dalam batas signifikansi, serta plot PACF yang menunjukkan satu spike signifikan pada lag 1, dapat diinterpretasikan bahwa data telah stasioner setelah dilakukan differencing. Pola ini mengindikasikan adanya komponen AR(1) yang dominan.
+
+
+## Menentukan nilai p, d, q terbaik
+
+```{r}
+# Model 1: ARIMA(1,1,1)
+m1 <- arima(ptba_data, order = c(1, 1, 1), method = "ML")
+lmtest::coeftest(m1)
+
+# Model 2: ARIMA(1,1,2)
+m2 <- arima(ptba_data, order = c(1, 1, 2), method = "ML")
+lmtest::coeftest(m2)
+
+# Model 3: ARIMA(2,1,1)
+m3 <- arima(ptba_data, order = c(2, 1, 1), method = "ML")
+lmtest::coeftest(m3)
+
+# Model 4: ARIMA(2,1,2)
+m4 <- arima(ptba_data, order = c(2, 1, 2), method = "ML")
+lmtest::coeftest(m4)
+
+# Model 5: ARIMA(1,1,3)
+m5 <- arima(ptba_data, order = c(1, 1, 3), method = "ML")
+lmtest::coeftest(m5)
+
+# Model 6: ARIMA(3,1,1)
+m6 <- arima(ptba_data, order = c(3, 1, 1), method = "ML")
+lmtest::coeftest(m6)
+
+# Model 7: ARIMA(3,1,2)
+m7 <- arima(ptba_data, order = c(3, 1, 2), method = "ML")
+lmtest::coeftest(m7)
+
+# Model 8: ARIMA(2,1,3)
+m8 <- arima(ptba_data, order = c(2, 1, 3), method = "ML")
+lmtest::coeftest(m8)
+
+# Menghitung AIC dan BIC untuk setiap model
+aic_bic_model <- data.frame(
+  Nama = c("m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"), 
+  Model = c(
+    "ARIMA(1,1,1)", "ARIMA(1,1,2)", "ARIMA(2,1,1)",
+    "ARIMA(2,1,2)", "ARIMA(1,1,3)", "ARIMA(3,1,1)", 
+    "ARIMA(3,1,2)", "ARIMA(2,1,3)"
+  ), 
+  AIC = c(AIC(m1), AIC(m2), AIC(m3), AIC(m4), AIC(m5), AIC(m6), AIC(m7), AIC(m8)),
+  BIC = c(BIC(m1), BIC(m2), BIC(m3), BIC(m4), BIC(m5), BIC(m6), BIC(m7), BIC(m8))
+)
+
+# Menampilkan AIC dan BIC
+print(aic_bic_model)
+```
+Tabel di atas menunjukkan tiga model ARIMA yang diuji, masing-masing dengan nilai AIC dan BIC yang berbeda. Model ARIMA(1,1,1) menunjukkan nilai AIC terendah yaitu 58484.24 dan BIC sebesar 58503.92, menunjukkan bahwa model ini adalah yang terbaik di antara delapan model tersebut berdasarkan kriteria informasi. Dengan kata lain, model ARIMA(1,1,1) memberikan keseimbangan terbaik antara kompleksitas dan akurasi dalam memodelkan data yang dianalisis.
+
+
+```{r}
+# Menampilkan ringkasan dari model m1
+summary(m1)
+```
+
+Berdasarkan summary model ini memiliki komponen autoregresif (AR) orde 1 dengan koefisien -0.1683, komponen moving average (MA) orde 1 dengan koefisien 0.2330, dan satu kali differencing (d=1). Koefisien AR dan MA yang signifikan secara statistik menunjukkan bahwa nilai saat ini dipengaruhi oleh nilai sebelumnya dan kesalahan prediksi sebelumnya. Differencing sebanyak satu kali mengindikasikan bahwa data memiliki tren non-stasioner dan perlu didifferencing untuk menjadi stasioner. Nilai AIC yang rendah menunjukkan bahwa model ini cukup baik dalam menjelaskan variabilitas data. Namun, perlu dilakukan analisis lebih lanjut, seperti uji diagnostik dan validasi model, untuk memastikan ketepatan model ini dalam meramalkan nilai masa depan
+
+
+```{r}
+checkresiduals(m1)
+```
+
+Plot residual dari model ARIMA(1,1,1) ini menunjukkan beberapa hal. Pertama, plot time series dari residual menunjukkan bahwa tidak ada pola yang jelas atau tren yang signifikan pada residual, yang mengindikasikan bahwa model telah berhasil menangkap pola utama dalam data. Kedua, plot ACF (Autocorrelation Function) menunjukkan bahwa sebagian besar nilai autokorelasi berada dalam batas signifikansi, yang berarti tidak ada korelasi yang signifikan antara residual pada lag yang berbeda. Terakhir, histogram dari residual menunjukkan distribusi yang hampir normal, meskipun ada sedikit penyimpangan di ekor distribusi. Secara keseluruhan, plot-plot ini mengindikasikan bahwa model ARIMA(1,1,1) yang digunakan cukup baik dalam memodelkan data dan residual yang dihasilkan sudah cukup acak (white noise), sesuai dengan asumsi model ARIMA.
+
+
+## Forecasting berdasarkan model terbaik m1
+
+```{r}
+# Menggunakan model m3 sebagai model terbaik berdasarkan AIC
+ramalan <- forecast::forecast(m1, h = 12)
+
+# Mengonversi hasil ramalan menjadi data frame dengan tanggal
+ramalan_df <- data.frame(
+  Date = seq(from = index(ptba_data)[length(ptba_data)], by = "month", length.out = 13)[-1],  # Menyusun tanggal dari data terakhir
+  Point_Forecast = as.numeric(ramalan$mean),  # Nilai ramalan
+  Lo_80 = as.numeric(ramalan$lower[, 1]),  # Batas bawah 80%
+  Hi_80 = as.numeric(ramalan$upper[, 1]),  # Batas atas 80%
+  Lo_95 = as.numeric(ramalan$lower[, 2]),  # Batas bawah 95%
+  Hi_95 = as.numeric(ramalan$upper[, 2])   # Batas atas 95%
+)
+
+# Menampilkan hasil ramalan dengan kolom tanggal yang jelas
+print(ramalan_df)
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Convert historical data to a data frame for plotting
+historical_df <- data.frame(
+  Date = index(ptba_data),
+  Closing_Price = as.numeric(ptba_data)
+)
+
+# Create a ggplot for the forecast with historical data
+forecast_plot <- ggplot() +
+  # Historical data
+  geom_line(data = historical_df, aes(x = Date, y = Closing_Price), color = "darkgrey", size = 1) +
+  # Forecasted data
+  geom_line(data = ramalan_df, aes(x = Date, y = Point_Forecast), color = "blue", size = 1) +
+  # Confidence intervals
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_95, ymax = Hi_95), fill = "lightblue", alpha = 0.5) +
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_80, ymax = Hi_80), fill = "lightgreen", alpha = 0.5) +
+  # Labels and theme
+  labs(title = "Forecast Data Harga Saham PTBA ARIMA(1,1,1)", x = "Date", y = "Price") +
+  theme_minimal()
+
+# Display the plot
+print(forecast_plot)
+```
+
+## Plot hasil yg lebih jelas
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)  # Ensure dplyr is loaded for data manipulation
+
+# Convert historical data to a data frame for plotting
+historical_df <- data.frame(
+  Date = index(ptba_data),
+  Closing_Price = as.numeric(ptba_data)
+)
+
+# Filter the historical data for the years 2022 and later
+historical_2022 <- historical_df %>%
+  filter(Date >= as.Date("2022-01-01"))  # Adjust the date format if needed
+
+# Create a ggplot for the forecast with historical data
+forecast_plot <- ggplot() +
+  # Historical data from 2022 onwards
+  geom_line(data = historical_2022, aes(x = Date, y = Closing_Price), color = "darkgrey", size = 1) +
+  # Forecasted data
+  geom_line(data = ramalan_df, aes(x = Date, y = Point_Forecast), color = "blue", size = 1) +
+  # Confidence intervals
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_95, ymax = Hi_95), fill = "lightblue", alpha = 0.5) +
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_80, ymax = Hi_80), fill = "lightgreen", alpha = 0.5) +
+  # Labels and theme
+  labs(title = "Forecast Data Harga Saham PTBA ARIMA(1,1,1)", x = "Date", y = "Price") +
+  theme_minimal()
+
+# Display the plot
+print(forecast_plot)
+```
+
+
+```{r}
+# Ambil data aktual dari awal 2024 hingga sekarang
+getSymbols("PTBA.JK", from = "2024-01-01", to = Sys.Date())
+actual_data <- data.frame(
+  Date = index(PTBA.JK),
+  Actual_Price = as.numeric(PTBA.JK$PTBA.JK.Close)
+)
+
+# Gabungkan data prediksi dan aktual
+comparison_df <- merge(ramalan_df, actual_data, by = "Date", all = TRUE)
+
+# Isi nilai NA dalam data aktual menggunakan interpolasi jika diperlukan
+comparison_df$Actual_Price <- zoo::na.approx(comparison_df$Actual_Price, na.rm = FALSE)
+
+# Filter hanya data yang relevan (tanggal prediksi dan data aktual)
+comparison_df <- comparison_df %>%
+  filter(Date >= as.Date("2024-01-01"))  # Sesuaikan dengan periode data aktual
+
+# Plot perbandingan data historis, prediksi, dan aktual
+final_plot <- ggplot() +
+  # Data historis
+  geom_line(data = historical_2022, aes(x = Date, y = Closing_Price), color = "darkgrey", size = 1, alpha = 0.7) +
+  # Data aktual
+  geom_line(data = comparison_df, aes(x = Date, y = Actual_Price), color = "red", size = 1, linetype = "dashed") +
+  # Data prediksi
+  geom_line(data = ramalan_df, aes(x = Date, y = Point_Forecast), color = "blue", size = 1) +
+  # Confidence intervals
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_95, ymax = Hi_95), fill = "lightblue", alpha = 0.5) +
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_80, ymax = Hi_80), fill = "lightgreen", alpha = 0.5) +
+  # Labels dan tema
+  labs(
+    title = "Perbandingan Forecast vs Actual",
+    x = "Date", y = "Price",
+    caption = "Dark grey: Historical | Blue: Forecast | Red (Dashed): Actual"
+  ) +
+  theme_minimal()
+
+# Display plot
+print(final_plot)
+```
+
+
+```{r}
+# Filter data yang memiliki nilai aktual dan prediksi
+comparison_table <- comparison_df %>%
+  filter(!is.na(Actual_Price) & !is.na(Point_Forecast)) %>%
+  select(Date, Actual_Price, Point_Forecast) %>%
+  left_join(ramalan_df %>% select(Date, Lo_80, Hi_80), by = "Date") %>%
+  mutate(Range_80 = Hi_80 - Lo_80)
+
+# Tampilkan tabel perbandingan
+print("Tabel Perbandingan Prediksi, Confidence Interval Hijau, dan Data Aktual:")
+print(comparison_table)
+```
+Berdasarkan data ramalan dan nilai aktual harga saham pada periode Januari hingga Oktober 2024, terlihat bahwa nilai aktual seringkali berada di atas rentang prediksi model ARIMA(1,1,1). Meskipun rata-rata prediksi berada di sekitar 2438, sebagian besar nilai aktual cenderung lebih tinggi, dengan puncak signifikan pada September 2024 sebesar 3110, jauh di atas batas atas rentang 80% (2702.765). Hal ini menunjukkan adanya volatilitas atau tren kenaikan yang tidak sepenuhnya terakomodasi oleh model. Selisih antara nilai aktual dan prediksi (Range_80) juga meningkat dari waktu ke waktu, yang dapat mengindikasikan perubahan pola yang memerlukan model atau parameter tambahan untuk memprediksi dengan lebih akurat.
+
+
+```{r}
+# Evaluasi model
+mae <- mean(abs(comparison_table$Actual_Price - comparison_table$Point_Forecast))  # Mean Absolute Error
+rmse <- sqrt(mean((comparison_table$Actual_Price - comparison_table$Point_Forecast)^2))  # Root Mean Squared Error
+mape <- mean(abs((comparison_table$Actual_Price - comparison_table$Point_Forecast) / comparison_table$Actual_Price)) * 100  # Mean Absolute Percentage Error
+
+# Tampilkan hasil evaluasi
+cat("\nEvaluasi Model:\n")
+cat("Mean Absolute Error (MAE):", round(mae, 2), "\n")
+cat("Root Mean Squared Error (RMSE):", round(rmse, 2), "\n")
+cat("Mean Absolute Percentage Error (MAPE):", round(mape, 2), "%\n")
+```
+
+Hasil evaluasi model menunjukkan bahwa meskipun model ARIMA memberikan prediksi yang baik, terdapat kesalahan yang signifikan dalam estimasi harga saham. Dengan MAE sebesar 302.77, model ini menunjukkan kesalahan rata-rata absolut yang cukup besar, artinya ada beberapa perbedaan antara nilai prediksi dan nilai aktual. RMSE sebesar 371.52 menunjukkan adanya variasi kesalahan yang cukup besar pada beberapa prediksi harga. MAPE sebesar 10.5% menunjukkan bahwa rata-rata kesalahan dalam bentuk persentase adalah sekitar 10.5%, yang masih dapat diterima, namun memberi indikasi bahwa model ini masih memiliki ruang untuk perbaikan dalam meningkatkan akurasi prediksi harga.
+
+
+```{r}
+# Menghitung residual
+residuals_m1 <- residuals(m1)
+
+# Menampilkan jumlah residual
+cat("Jumlah residual:", length(residuals_m1), "\n")
+
+# Jika jumlah residual lebih dari 3, lakukan uji Shapiro-Wilk
+if (length(residuals_m1) >= 3 && length(residuals_m1) <= 5000) {
+  shapiro_test <- shapiro.test(residuals_m1)
+  cat("Shapiro-Wilk Test: W =", shapiro_test$statistic, ", p-value =", shapiro_test$p.value, "\n")
+} else {
+  cat("Sample size for Shapiro-Wilk test is not valid.\n")
+}
+```
+
+
+
+
+```{r}
+# Mengambil residual dari model ARIMA(1,1,1)
+residuals_m1 <- residuals(m1)
+
+# Uji Kolmogorov-Smirnov
+ks_test_result <- ks.test(residuals_m1, "pnorm", mean = mean(residuals_m1), sd = sd(residuals_m1))
+
+# Menampilkan hasil uji
+print(ks_test_result)
+```
+
+Hasil uji Kolmogorov-Smirnov satu sampel menunjukkan nilai statistik D sebesar 0.11939 dengan p-value yang sangat kecil (< 2.2e-16), yang mengindikasikan bahwa residual dari model ARIMA tidak terdistribusi normal. Karena p-value jauh lebih kecil dari tingkat signifikansi yang umum digunakan (misalnya 0.05), kita menolak hipotesis nol yang menyatakan bahwa residual mengikuti distribusi normal. Dengan kata lain, ada bukti yang sangat kuat bahwa residual model ARIMA ini tidak sesuai dengan distribusi normal, yang dapat menunjukkan adanya pola yang tidak tertangkap oleh model.
+
+
+```{r}
+# Melakukan uji Ljung-Box pada residual model ARIMA(1,1,1)
+ljung_box_result <- Box.test(residuals_m1, lag = 12, type = "Ljung-Box")
+
+# Menampilkan hasil uji
+print(ljung_box_result)
+
+```
+Hasil uji Ljung-Box menunjukkan nilai statistik chi-squared sebesar 15.78243 dengan p-value sebesar 0.2014. Karena p-value lebih besar dari tingkat signifikansi yang umum digunakan (misalnya 0.05), kita tidak menolak hipotesis nol, yang menyatakan bahwa tidak ada autokorelasi yang signifikan pada residual model. Dengan demikian, dapat disimpulkan bahwa residual model ARIMA tidak menunjukkan adanya pola autokorelasi yang berarti, yang menunjukkan bahwa model ini berhasil menangkap informasi dalam data dan residualnya bersifat acak.
+
+
+```{r}
+# Plot Q-Q untuk memeriksa normalitas residual
+qqnorm(residuals_m1, main="Q-Q Plot of Residuals")
+qqline(residuals_m1, col = "red")
+
+# Uji Ljung-Box untuk memeriksa autocorrelation residuals
+ljung_box_test <- Box.test(residuals_m1, lag = 12, type = "Ljung-Box")
+cat("Ljung-Box Test: Chi-squared =", ljung_box_test$statistic, ", p-value =", ljung_box_test$p.value, "\n")
+```
+
+Plot Q-Q menunjukkan bahwa residual dari model ARIMA(1,1,1) tidak sepenuhnya mengikuti distribusi normal, terutama pada ekor distribusi. Hal ini mengindikasikan bahwa asumsi normalitas dari residual mungkin tidak terpenuhi sepenuhnya.
+
+
+```{r}
+# Plot residual
+plot(residuals_m1, main = "Residuals dari Model ARIMA(1,1,1)", ylab = "Residual", col = "blue")
+abline(h = 0, col = "red")
+```
+
+Pada plot ini, terlihat adanya beberapa pola yang masih tersisa, terutama pada periode tertentu di mana residual cenderung mengumpul di atas atau di bawah garis nol. Hal ini mengindikasikan bahwa model ARIMA(1,1,1) mungkin belum sepenuhnya menangkap semua variabilitas dalam data. Kemungkinan ada pola musiman, tren non-linear, atau efek outlier yang belum terakomodasi oleh model.
+
+```{r}
+# Menggunakan model m1 sebagai model terbaik berdasarkan AIC
+ramalan <- forecast::forecast(m1, h = 15)  
+
+# Mengonversi hasil ramalan menjadi data frame dengan tanggal harian
+ramalan_df <- data.frame(
+  Date = seq(from = index(ptba_data)[length(ptba_data)] + 1, by = "days", length.out = 30),
+  Point_Forecast = as.numeric(ramalan$mean),  # Nilai ramalan
+  Lo_80 = as.numeric(ramalan$lower[, 1]),  # Batas bawah 80%
+  Hi_80 = as.numeric(ramalan$upper[, 1]),  # Batas atas 80%
+  Lo_95 = as.numeric(ramalan$lower[, 2]),  # Batas bawah 95%
+  Hi_95 = as.numeric(ramalan$upper[, 2])   # Batas atas 95%
+)
+
+# Menampilkan hasil ramalan dengan kolom tanggal harian yang jelas
+print(ramalan_df)
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Convert historical data to a data frame for plotting
+historical_df <- data.frame(
+  Date = index(ptba_data),
+  Closing_Price = as.numeric(ptba_data)
+)
+
+# Filter the historical data for recent dates
+historical_recent <- historical_df %>%
+  filter(Date >= max(index(ptba_data)) - 60)  # Hanya data 60 hari terakhir
+
+# Create a ggplot for the forecast with historical data
+forecast_plot <- ggplot() +
+  # Historical data
+  geom_line(data = historical_recent, aes(x = Date, y = Closing_Price), color = "darkgrey", size = 1) +
+  # Forecasted data
+  geom_line(data = ramalan_df, aes(x = Date, y = Point_Forecast), color = "blue", size = 1) +
+  # Confidence intervals
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_95, ymax = Hi_95), fill = "lightblue", alpha = 0.5) +
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_80, ymax = Hi_80), fill = "lightgreen", alpha = 0.5) +
+  # Labels and theme
+  labs(title = "Forecast Data Harga Saham PTBA ARIMA(1,1,1) - Harian", x = "Date", y = "Price") +
+  theme_minimal()
+
+# Display the plot
+print(forecast_plot)
+```
+
+```{r}
+# Ambil data aktual dari awal 2024 hingga sekarang dengan frekuensi harian
+getSymbols("PTBA.JK", from = "2024-01-01", to = "2024-01-16")
+actual_data <- data.frame(
+  Date = index(PTBA.JK),
+  Actual_Price = as.numeric(PTBA.JK$PTBA.JK.Close)
+)
+
+# Gabungkan data prediksi dan aktual
+comparison_df <- merge(ramalan_df, actual_data, by = "Date", all = TRUE)
+
+# Isi nilai NA dalam data aktual menggunakan interpolasi
+comparison_df$Actual_Price <- zoo::na.approx(comparison_df$Actual_Price, na.rm = FALSE)
+
+# Filter data untuk periode prediksi dan data aktual
+comparison_df <- comparison_df %>%
+  filter(Date >= as.Date("2024-01-01"))  # Sesuaikan dengan periode data aktual
+
+# Plot perbandingan data historis, prediksi, dan aktual
+final_plot <- ggplot() +
+  # Data historis (60 hari terakhir untuk kontekstualisasi)
+  geom_line(data = historical_recent, aes(x = Date, y = Closing_Price), color = "darkgrey", size = 1, alpha = 0.7) +
+  # Data aktual
+  geom_line(data = comparison_df, aes(x = Date, y = Actual_Price), color = "red", size = 1, linetype = "dashed") +
+  # Data prediksi
+  geom_line(data = ramalan_df, aes(x = Date, y = Point_Forecast), color = "blue", size = 1) +
+  # Confidence intervals
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_95, ymax = Hi_95), fill = "lightblue", alpha = 0.5) +
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_80, ymax = Hi_80), fill = "lightgreen", alpha = 0.5) +
+  # Labels dan tema
+  labs(
+    title = "Perbandingan Forecast vs Actual (Harian)",
+    x = "Date", y = "Price",
+    caption = "Dark grey: Historical | Blue: Forecast | Red (Dashed): Actual"
+  ) +
+  theme_minimal()
+
+# Display plot
+print(final_plot)
+```
+
+```{r}
+# Evaluasi model
+mae <- mean(abs(comparison_table$Actual_Price - comparison_table$Point_Forecast))  # Mean Absolute Error
+rmse <- sqrt(mean((comparison_table$Actual_Price - comparison_table$Point_Forecast)^2))  # Root Mean Squared Error
+mape <- mean(abs((comparison_table$Actual_Price - comparison_table$Point_Forecast) / comparison_table$Actual_Price)) * 100  # Mean Absolute Percentage Error
+
+# Tampilkan hasil evaluasi
+cat("\nEvaluasi Model:\n")
+cat("Mean Absolute Error (MAE):", round(mae, 2), "\n")
+cat("Root Mean Squared Error (RMSE):", round(rmse, 2), "\n")
+cat("Mean Absolute Percentage Error (MAPE):", round(mape, 2), "%\n")
+```
+```
+
