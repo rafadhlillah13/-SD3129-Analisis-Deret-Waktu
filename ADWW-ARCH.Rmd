@@ -1,0 +1,351 @@
+---
+title: "Tugas ADW GARCH"
+author: "Rafi Fadhlillah"
+date: "2024-11-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Prediksi Volatilitas dan Harga Saham JSMR (Jasa Marga Tbk)
+
+```{r}
+library(quantmod)
+library(rugarch)
+library(tseries)
+library(forecast)
+library(lmtest)
+library(fGarch)
+library(FinTS)
+library(zoo)
+```
+
+
+```{r}
+# Ambil data saham JSMR dari Yahoo Finance sejak awal IPO hingga Oktober 2024
+getSymbols("JSMR.JK", src = "yahoo", from = "2008-01-01", to = "2024-11-8")
+
+# Ambil harga penutupan dan hilangkan nilai NA
+data <- na.omit(Cl(JSMR.JK))
+head(data)
+```
+
+```{r}
+# Hitung return
+returns <- diff(log(data))
+plot(returns, main="Log Return Saham JSMR", col = "#D8AE5A", xlab="Tahun", ylab="Log Return")
+```
+```{r}
+# Plot Harga Saham
+plot(data, main="Harga Penutupan Saham JSMR", col = "#D8AE5A", xlab="Tanggal", ylab="Harga Saham")
+```
+
+```{r}
+returns <- na.omit(returns)
+adf.test(returns)
+```
+
+```{r}
+# ACF dan PACF plot untuk return
+par(mfrow=c(1,2))
+acf(returns, main="ACF Log Return")
+pacf(returns, main="PACF Log Return")
+```
+
+```{r}
+# Uji heteroskedastisitas dengan ARCH LM test
+arch.test <- ArchTest(returns, lags=12)
+print(arch.test)
+```
+
+Dengan p-value yang sangat kecil (kurang dari 2.2e-16), kita menolak hipotesis nol yang menyatakan bahwa tidak ada efek ARCH. Ini berarti ada bukti kuat adanya efek ARCH dalam data returns, yang menunjukkan variabilitas varians dari waktu ke waktu, atau dengan kata lain, volatilitas tidak konstan.
+
+```{r}
+# Uji normalitas
+jarque.bera.test(returns)
+```
+Dengan p-value yang sangat kecil (kurang dari 2.2e-16), kita menolak hipotesis nol bahwa data returns mengikuti distribusi normal.
+
+
+```{r}
+# Membuat berbagai spesifikasi model GARCH
+# GARCH(1,1)
+spec1 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,1)),
+                    mean.model=list(armaOrder=c(0,0)), 
+                    distribution.model="std")
+
+# GARCH(1,2)
+spec2 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,2)),
+                    mean.model=list(armaOrder=c(0,0)), 
+                    distribution.model="std")
+
+# GARCH(2,1)
+spec3 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,1)),
+                    mean.model=list(armaOrder=c(0,0)), 
+                    distribution.model="std")
+
+# GARCH(2,2)
+spec4 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,2)),
+                    mean.model=list(armaOrder=c(0,0)), 
+                    distribution.model="std")
+
+# Fitting models
+fit1 <- ugarchfit(spec1, returns)
+fit2 <- ugarchfit(spec2, returns)
+fit3 <- ugarchfit(spec3, returns)
+fit4 <- ugarchfit(spec4, returns)
+
+# Membandingkan kriteria informasi
+info_criteria <- data.frame(
+  Model = c("GARCH(1,1)", "GARCH(1,2)", "GARCH(2,1)", "GARCH(2,2)"),
+  AIC = c(infocriteria(fit1)[1], infocriteria(fit2)[1], 
+          infocriteria(fit3)[1], infocriteria(fit4)[1]),
+  BIC = c(infocriteria(fit1)[2], infocriteria(fit2)[2], 
+          infocriteria(fit3)[2], infocriteria(fit4)[2])
+)
+print(info_criteria)
+```
+
+- AIC Terendah: GARCH(1,2) memiliki AIC terendah (-5.130278), yang menunjukkan bahwa model ini memberikan keseimbangan terbaik antara kesesuaian dan kompleksitas.
+- BIC Terendah: GARCH(1,2) juga memiliki BIC terendah (-5.121121), meskipun perbedaannya sangat kecil dengan model lainnya.
+
+# Uji Diagnostik
+```{r}
+# Uji Normalitas Residuals dengan Jarque-Bera Test
+residuals_garch <- residuals(fit2)
+jarque.bera.test(residuals_garch)
+
+# Uji Autocorrelation dengan Ljung-Box Test
+Box.test(residuals_garch, lag = 12, type = "Ljung-Box")
+
+# Uji Heteroskedastisitas dengan ARCH LM test pada residuals model
+arch_test_residuals <- ArchTest(residuals_garch, lags=12)
+print(arch_test_residuals)
+```
+```{r}
+# Plot pertama - Distribusi dengan ggplot2
+library(ggplot2)
+library(gridExtra)
+
+p2_1 <- qplot(residuals(fit2), geom = 'density') + 
+  geom_density(fill = 'blue', alpha = 0.4) + 
+  geom_density(aes(rnorm(200000, 0, sd(residuals(fit2)))), fill = 'red', alpha = 0.25) + 
+  labs(x = 'Residuals')
+
+# Plot kedua - Distribusi dengan batasan dan garis vertikal
+p2_2 <- qplot(residuals(fit2), geom = 'density') + 
+  geom_density(fill = 'blue', alpha = 0.4) + 
+  geom_density(aes(rnorm(200000, 0, sd(residuals(fit2)))), fill = 'red', alpha = 0.25) + 
+  coord_cartesian(xlim = c(-0.07, -0.02), ylim = c(0, 10)) + 
+  geom_vline(xintercept = c(qnorm(p = c(0.01, 0.05), mean = mean(residuals(fit2)), sd = sd(residuals(fit2)))), 
+             color = c('darkgreen', 'green'), size = 1) + 
+  labs(x = 'Residuals')
+
+# Menampilkan kedua plot secara berdampingan
+grid.arrange(p2_1, p2_2, ncol = 1)
+
+```
+
+Hasil analisis menunjukkan bahwa residuals dari model GARCH fit2 tidak terdistribusi normal, berdasarkan uji normalitas Jarque-Bera yang menghasilkan nilai p sangat kecil (< 2.2e-16). Plot distribusi menunjukkan bahwa residuals memiliki ekor lebih berat dan lebih banyak nilai ekstrem dibandingkan dengan distribusi normal, yang ditunjukkan oleh perbandingan antara kurva distribusi residuals dengan distribusi normal. Selain itu, pada plot dengan rentang terbatas, terlihat lebih banyak outliers yang berada di luar persentil 1% dan 5%. Hal ini mengindikasikan bahwa model GARCH fit2 menangani volatilitas dengan baik, meskipun residualsnya tidak sepenuhnya mengikuti distribusi normal.
+
+```{r}
+# Plotting Residuals untuk Diagnostik
+plot(residuals_garch, main="Residuals Model GARCH", col = "#D8AE5A", xlab="Tanggal", ylab="Residuals")
+
+# Plot ACF dan PACF Residuals
+acf(residuals_garch, main="ACF Residuals Model GARCH")
+pacf(residuals_garch, main="PACF Residuals Model GARCH")
+
+```
+
+# Prediksi Volatilitas dengan Garch(1,2)
+
+```{r}
+# Menggunakan model terbaik (yang memiliki AIC dan BIC terendah)
+best_model <- fit2  # akan diupdate sesuai hasil perbandingan di atas
+
+# Melakukan forecast untuk 30 hari ke depan
+forecast <- ugarchforecast(best_model, n.ahead=30)
+
+# Plot hasil forecast volatilitas
+plot(forecast, which=3)
+```
+
+```{r}
+# Membuat tabel hasil forecast
+forecast_values <- data.frame(
+  Forecast = fitted(forecast),
+  Sigma = sigma(forecast),
+  Lower = fitted(forecast) - 1.96 * sigma(forecast),
+  Upper = fitted(forecast) + 1.96 * sigma(forecast)
+)
+head(forecast_values)
+```
+
+```{r}
+# Plot gabungan data historis dan forecast
+# Mengambil prediksi volatilitas historis
+hist_vol <- sigma(best_model)
+last_date <- index(hist_vol)[length(hist_vol)]
+forecast_dates <- seq(last_date, by="days", length.out=31)[-1]
+
+# Plot
+plot(hist_vol, main="Historical and Forecasted Volatility",  
+     xlab="Time", ylab="Volatility", type="l",  col = "#D8AE5A")
+lines(forecast_dates, sigma(forecast), col="red")
+legend("topright", legend=c("Historical", "Forecast"), 
+       col=c("black", "red"), lty=1)
+```
+
+
+```{r}
+# Bagi data menjadi training dan testing
+training_data <- window(returns, end = "2024-08-31")
+testing_data <- window(returns, start = "2024-09-01")
+
+# Hitung jumlah hari dalam periode testing
+n_test_days <- length(testing_data)
+
+# Fit model dengan data training
+best_model <- ugarchfit(spec1, training_data)
+
+# Forecast untuk periode yang sama dengan testing
+forecast <- ugarchforecast(best_model, n.ahead=n_test_days)
+
+# Persiapkan data untuk plotting
+forecast_values <- data.frame(
+  Date = as.Date(index(testing_data)),
+  Forecast = as.numeric(sigma(forecast)),
+  Lower = as.numeric(sigma(forecast)) - 1.96 * as.numeric(sigma(forecast)),
+  Upper = as.numeric(sigma(forecast)) + 1.96 * as.numeric(sigma(forecast))
+)
+
+actual_values <- data.frame(
+  Date = as.Date(index(testing_data)),
+  Actual = abs(as.numeric(testing_data))
+)
+
+# Hapus NA atau nilai yang tidak valid
+forecast_values <- forecast_values[complete.cases(forecast_values), ]
+actual_values <- actual_values[complete.cases(actual_values), ]
+
+# Tentukan ylim dengan memeriksa nilai minimum dan maksimum
+y_min <- min(c(forecast_values$Lower, forecast_values$Upper, actual_values$Actual), na.rm = TRUE)
+y_max <- max(c(forecast_values$Lower, forecast_values$Upper, actual_values$Actual), na.rm = TRUE)
+
+# Plot perbandingan
+plot(forecast_values$Date, forecast_values$Forecast, type="l", col="blue",
+     main="Perbandingan Aktual dan Prediksi Volatilitas (Sept - Okt 2024)",
+     xlab="Date", ylab="Volatility",
+     ylim=c(y_min, y_max))
+
+lines(forecast_values$Date, forecast_values$Lower, col="red", lty=2)
+lines(forecast_values$Date, forecast_values$Upper, col="red", lty=2)
+points(actual_values$Date, actual_values$Actual, col="green", pch=19)
+
+legend("topright", 
+       legend=c("Forecast", "Confidence Interval", "Actual"),
+       col=c("blue", "red", "green"),
+       lty=c(1, 2, NA),
+       pch=c(NA, NA, 19))
+
+# Hitung metrik evaluasi
+mae <- mean(abs(forecast_values$Forecast - actual_values$Actual), na.rm=TRUE)
+rmse <- sqrt(mean((forecast_values$Forecast - actual_values$Actual)^2, na.rm=TRUE))
+
+# Print hasil evaluasi
+print("Evaluasi Forecast:")
+print(paste("MAE:", round(mae, 4)))
+print(paste("RMSE:", round(rmse, 4)))
+
+# Buat tabel perbandingan
+comparison_table <- data.frame(
+  Date = forecast_values$Date,
+  Forecast = round(forecast_values$Forecast, 4),
+  Actual = round(actual_values$Actual, 4),
+  Error = round(abs(forecast_values$Forecast - actual_values$Actual), 4)
+)
+
+print("\nTabel Perbandingan:")
+print(comparison_table)
+```
+
+# Prediksi Harga Penutupan Saham dengan Garch(1,2)
+
+```{r}
+# Ambil harga penutupan terakhir dari data historis
+last_price <- as.numeric(tail(data, 1))
+
+# Simulasi prediksi return (dengan menggunakan prediksi volatilitas)
+forecast_returns <- forecast@forecast$seriesFor
+forecast_volatility <- sigma(forecast)
+
+# Prediksi harga saham dengan rumus:
+# Harga_t = Harga_t-1 * exp(Return_t)
+# Di mana Return_t adalah return yang diprediksi untuk periode t dan
+# Volatilitas digunakan untuk mendapatkan distribusi normal standar dari return yang diprediksi.
+
+# Menggunakan distribusi normal standar untuk simulasi prediksi return
+set.seed(123)  # Untuk reproduksi
+predicted_returns <- rnorm(n_test_days, mean=forecast_returns, sd=forecast_volatility)
+
+# Simulasi harga saham untuk periode forecast
+predicted_prices <- last_price * exp(cumsum(predicted_returns))
+
+# Plot perbandingan harga aktual dan harga prediksi
+predicted_prices_dates <- seq(from=as.Date("2024-09-01"), by="days", length.out=n_test_days)
+
+# Plot hasil prediksi harga saham
+plot(predicted_prices_dates, predicted_prices, type="l", col="blue", lwd=2,
+     main="Prediksi dan Aktual Harga (Sept- Okt 2024)", xlab="Tanggal", ylab="Harga Saham",
+     xlim=c(predicted_prices_dates[1], predicted_prices_dates[n_test_days]))
+lines(index(data), data, col="black", lwd=1)  # Data historis
+
+legend("topright", legend=c("Prediksi Harga", "Harga Historis"),
+       col=c("blue", "black"), lty=1, lwd=2)
+
+```
+
+# Tabel Perbandingan harga aktual dan prediksi
+
+```{r}
+# Menyiapkan data tanggal dan harga prediksi dalam bentuk tabel
+predicted_data <- data.frame(
+  Tanggal = predicted_prices_dates,
+  Harga_Prediksi = predicted_prices
+)
+
+# Membatasi data aktual ke rentang tanggal prediksi untuk perbandingan
+harga_aktual <- data.frame(
+  Tanggal = index(data)[index(data) >= predicted_prices_dates[1] & index(data) <= predicted_prices_dates[n_test_days]],
+  Harga_Aktual = coredata(data)[index(data) >= predicted_prices_dates[1] & index(data) <= predicted_prices_dates[n_test_days]]
+)
+
+# Gabungkan data prediksi dan aktual berdasarkan tanggal
+comparison_table <- merge(predicted_data, harga_aktual, by="Tanggal", all.x=TRUE)
+
+# Menampilkan tabel perbandingan
+print(comparison_table)
+```
+
+# Informasi Model Garch(1,2)
+
+```{r}
+fit2
+```
+
+```{r}
+# Menghitung MAE dan RMSE antara harga aktual dan prediksi
+actual_prices <- as.numeric(data[(length(data)-n_test_days+1):length(data)])
+mae_price <- mean(abs(predicted_prices - actual_prices))
+rmse_price <- sqrt(mean((predicted_prices - actual_prices)^2))
+
+# Print hasil evaluasi
+print("Evaluasi Prediksi Harga:")
+print(paste("MAE:", round(mae_price, 4)))
+print(paste("RMSE:", round(rmse_price, 4)))
+```
+
+Hasil evaluasi prediksi harga menunjukkan dua metrik utama: MAE (Mean Absolute Error) dan RMSE (Root Mean Squared Error). MAE sebesar 190.5769 menunjukkan bahwa, rata-rata, prediksi harga model memiliki selisih sekitar 190.5769 unit dari harga aktual. Sedangkan RMSE sebesar 244.8177 menggambarkan bahwa kesalahan prediksi, terutama yang lebih besar, memberikan dampak yang lebih besar terhadap nilai kesalahan model. Secara keseluruhan, meskipun model memberikan prediksi yang cukup dekat dengan data aktual, terdapat beberapa prediksi yang cukup jauh dari nilai sebenarnya, yang tercermin dalam nilai RMSE yang lebih tinggi dibandingkan MAE.
