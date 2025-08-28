@@ -1,0 +1,276 @@
+---
+title: "Forecasting Saham PTBA Menggunakan ARIMA"
+author: "Rafi Fadhlillah"
+date: "2024-10-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load necessary libraries
+library(quantmod)
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(zoo)
+library(xts)
+```
+
+## Data
+
+```{r}
+# Mengambil data saham PTBA sejak IPO (tahun 2003)
+getSymbols("PTBA.JK", from = "2003-01-01", to = Sys.Date())
+ptba_data <- PTBA.JK$PTBA.JK.Close
+ptba_data <- na.approx(PTBA.JK$PTBA.JK.Close)
+tail(ptba_data)
+```
+
+```{r}
+plot(ptba_data, main = "Data Harga Penutupan Saham PTBA Sejak IPO", xlab = "Tanggal", ylab = "Harga Penutupan", col = "blue")
+
+```
+
+## Uji Stasioner
+
+```{r}
+# Uji ADF
+adf_test <- adf.test(ptba_data)
+print(adf_test)
+```
+
+- P-value sebesar 0.4031 menunjukkan bahwa tidak ada cukup bukti untuk menolak hipotesis nol. Hipotesis nol dalam uji ADF menyatakan bahwa data memiliki akar unit (non-stasioner).
+- Secara umum, jika p-value lebih besar dari 0.05, kita gagal menolak hipotesis nol. Dalam hal ini, p-value 0.4031 menunjukkan bahwa data tidak stasioner.
+
+
+## Differencing 
+
+```{r}
+# Differencing data saham PTBA untuk membuatnya stasioner
+diff_ptba_data <- diff(ptba_data)
+
+# Menghapus missing values (NA) yang muncul setelah differencing
+diff_ptba_data <- na.omit(diff_ptba_data)
+
+# Plot data setelah differencing
+plot(diff_ptba_data, main = "Data Saham PTBA Setelah Differencing", col = "blue", ylab = "Perbedaan Harga Penutupan")
+```
+
+## Uji Stasioner setelah Differencing
+
+```{r}
+# Uji ADF setelah differencing
+adf_test_diff <- adf.test(diff_ptba_data)
+print(adf_test_diff)
+```
+
+Hasil uji ADF menunjukkan bahwa data stasioner setelah proses diferensiasi dilakukan.
+
+## ACF dan PACF
+
+```{r}
+# Plot ACF dan PACF setelah differencing
+par(mfrow=c(1,2))
+acf(diff_ptba_data, main="ACF Plot setelah Differencing")
+pacf(diff_ptba_data, main="PACF Plot setelah Differencing")
+par(mfrow=c(1,1))
+```
+
+Pada grafik ACF, terlihat bahwa nilai autokorelasi pada lag pertama sangat tinggi, menunjukkan bahwa nilai saat ini memiliki hubungan yang kuat dengan nilai sebelumnya, tetapi nilai-nilai autokorelasi pada lag yang lebih tinggi cepat menurun dan tidak menunjukkan signifikansi. Hal ini mengindikasikan bahwa pengaruh nilai sebelumnya hanya terasa dalam satu periode waktu, tanpa adanya pola jangka panjang yang tersisa. Sebaliknya, grafik PACF menunjukkan bahwa hanya lag pertama yang memiliki nilai signifikan, sementara nilai-nilai untuk lag yang lebih tinggi cenderung berada di sekitar nol. Ini menunjukkan bahwa model autoregressive (AR) dapat dipertimbangkan dengan parameter AR pada order 1, tanpa memerlukan lag tambahan.
+
+## Menentukan nilai p, d, q terbaik
+
+```{r}
+# Menentukan nilai p, d, q terbaik setelah differencing
+best_arima_model <- auto.arima(ptba_data)
+summary(best_arima_model)
+```
+
+Model ARIMA terbaik yang ditemukan untuk data adalah ARIMA(0,1,1), yang menunjukkan bahwa model ini menggunakan satu differencing untuk mencapai stasioneritas dan melibatkan satu parameter moving average (MA). RMSE (Root Mean Squared Error) adalah 65.07, MAE (Mean Absolute Error) adalah 40.87, dan MAPE (Mean Absolute Percentage Error) adalah 1.92%, menandakan performa model yang cukup baik dalam memprediksi nilai-nilai dalam data. Secara keseluruhan, hasil ini menunjukkan bahwa model ARIMA(0,1,1) dapat digunakan untuk analisis dan prediksi lebih lanjut pada data yang dianalisis.
+
+```{r}
+# Menerapkan model ARIMA yang berbeda
+# Model 1: ARIMA(1,1,0)
+m1 <- arima(ptba_data, order = c(1, 1, 0), seasonal = list(order = c(0, 1, 0), period = 12), method = "ML")
+lmtest::coeftest(m1)
+
+# Model 2: ARIMA(0,1,1)
+m2 <- arima(ptba_data, order = c(0, 1, 1), seasonal = list(order = c(0, 1, 0), period = 12), method = "ML")
+lmtest::coeftest(m2)
+
+# Model 3: ARIMA(1,1,1)
+m3 <- arima(ptba_data, order = c(1, 1, 1), seasonal = list(order = c(0, 1, 0), period = 12), method = "ML")
+lmtest::coeftest(m3)
+
+# Menghitung AIC dan BIC untuk setiap model
+aic_bic_model <- data.frame(
+  Nama = c("m1", "m2", "m3"), 
+  Model = c("ARIMA(1,1,0)", "ARIMA(0,1,1)", "ARIMA(1,1,1)"), 
+  AIC = c(m1$aic, m2$aic, m3$aic),
+  BIC = c(BIC(m1), BIC(m2), BIC(m3))
+)
+
+# Menampilkan AIC dan BIC
+print(aic_bic_model)
+```
+
+Tabel di atas menunjukkan tiga model ARIMA yang diuji, masing-masing dengan nilai AIC dan BIC yang berbeda. Model ARIMA(1,1,1) menunjukkan nilai AIC terendah yaitu 64068.06 dan BIC sebesar 64087.84, menunjukkan bahwa model ini adalah yang terbaik di antara ketiga model tersebut berdasarkan kriteria informasi. Dengan kata lain, model ARIMA(1,1,1) memberikan keseimbangan terbaik antara kompleksitas dan akurasi dalam memodelkan data yang dianalisis.
+
+```{r}
+checkresiduals(m3)
+```
+
+> Pada panel paling atas, plot residual menunjukkan fluktuasi yang tampak acak di sekitar nilai nol, namun terdapat beberapa lonjakan yang mengindikasikan potensi heteroskedastisitas atau perilaku yang tidak terprediksi dalam data
+
+> Panel ACF di bagian bawah kiri menunjukkan autokorelasi residual, di mana hanya ada satu nilai signifikan pada lag 1, yang mengindikasikan bahwa residual model tidak sepenuhnya independen, namun secara keseluruhan tampaknya tidak ada pola yang jelas.
+
+> Terakhir, plot distribusi residual di bagian kanan bawah menunjukkan bahwa residual cenderung terdistribusi normal dengan puncak yang lebih tinggi di sekitar nol, meskipun ada beberapa ekor yang panjang, yang mengindikasikan kemungkinan adanya outlier. Secara keseluruhan, meskipun model ARIMA ini menunjukkan performa yang baik.
+
+
+## Forecasting berdasarkan model terbaik m3
+
+```{r}
+# Menggunakan model m3 sebagai model terbaik berdasarkan AIC
+ramalan <- forecast::forecast(m3, h = 12)
+
+# Mengonversi hasil ramalan menjadi data frame dengan tanggal
+ramalan_df <- data.frame(
+  Date = seq(from = index(ptba_data)[length(ptba_data)], by = "month", length.out = 13)[-1],  # Menyusun tanggal dari data terakhir
+  Point_Forecast = as.numeric(ramalan$mean),  # Nilai ramalan
+  Lo_80 = as.numeric(ramalan$lower[, 1]),  # Batas bawah 80%
+  Hi_80 = as.numeric(ramalan$upper[, 1]),  # Batas atas 80%
+  Lo_95 = as.numeric(ramalan$lower[, 2]),  # Batas bawah 95%
+  Hi_95 = as.numeric(ramalan$upper[, 2])   # Batas atas 95%
+)
+
+# Menampilkan hasil ramalan dengan kolom tanggal yang jelas
+print(ramalan_df)
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Convert historical data to a data frame for plotting
+historical_df <- data.frame(
+  Date = index(ptba_data),
+  Closing_Price = as.numeric(ptba_data)
+)
+
+# Create a ggplot for the forecast with historical data
+forecast_plot <- ggplot() +
+  # Historical data
+  geom_line(data = historical_df, aes(x = Date, y = Closing_Price), color = "darkgrey", size = 1) +
+  # Forecasted data
+  geom_line(data = ramalan_df, aes(x = Date, y = Point_Forecast), color = "blue", size = 1) +
+  # Confidence intervals
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_95, ymax = Hi_95), fill = "lightblue", alpha = 0.5) +
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_80, ymax = Hi_80), fill = "lightgreen", alpha = 0.5) +
+  # Labels and theme
+  labs(title = "Historical and Forecast of PTBA Stock Prices", x = "Date", y = "Price") +
+  theme_minimal()
+
+# Display the plot
+print(forecast_plot)
+```
+
+## Plot hasil yg lebih jelas
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)  # Ensure dplyr is loaded for data manipulation
+
+# Convert historical data to a data frame for plotting
+historical_df <- data.frame(
+  Date = index(ptba_data),
+  Closing_Price = as.numeric(ptba_data)
+)
+
+# Filter the historical data for the years 2022 and later
+historical_2022 <- historical_df %>%
+  filter(Date >= as.Date("2022-01-01"))  # Adjust the date format if needed
+
+# Create a ggplot for the forecast with historical data
+forecast_plot <- ggplot() +
+  # Historical data from 2022 onwards
+  geom_line(data = historical_2022, aes(x = Date, y = Closing_Price), color = "darkgrey", size = 1) +
+  # Forecasted data
+  geom_line(data = ramalan_df, aes(x = Date, y = Point_Forecast), color = "blue", size = 1) +
+  # Confidence intervals
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_95, ymax = Hi_95), fill = "lightblue", alpha = 0.5) +
+  geom_ribbon(data = ramalan_df, aes(x = Date, ymin = Lo_80, ymax = Hi_80), fill = "lightgreen", alpha = 0.5) +
+  # Labels and theme
+  labs(title = "Forecast of PTBA Stock Prices ARIMA(1,1,1)", x = "Date", y = "Price") +
+  theme_minimal()
+
+# Display the plot
+print(forecast_plot)
+```
+
+```{r}
+# Menghitung residual
+residuals_m3 <- residuals(m3)
+
+# Menampilkan jumlah residual
+cat("Jumlah residual:", length(residuals_m3), "\n")
+
+# Jika jumlah residual lebih dari 3, lakukan uji Shapiro-Wilk
+if (length(residuals_m3) >= 3 && length(residuals_m3) <= 5000) {
+  shapiro_test <- shapiro.test(residuals_m3)
+  cat("Shapiro-Wilk Test: W =", shapiro_test$statistic, ", p-value =", shapiro_test$p.value, "\n")
+} else {
+  cat("Sample size for Shapiro-Wilk test is not valid.\n")
+}
+```
+
+
+Shapiro-Wilk test memerlukan ukuran sampel antara 3 hingga 5000 untuk diuji. Dalam kasus ini, memiliki 5402 residual, ukuran sampel terlalu besar untuk uji ini.
+
+
+```{r}
+# Mengambil residual dari model ARIMA(1,1,1)
+residuals_m3 <- residuals(m3)
+
+# Uji Kolmogorov-Smirnov
+ks_test_result <- ks.test(residuals_m3, "pnorm", mean = mean(residuals_m3), sd = sd(residuals_m3))
+
+# Menampilkan hasil uji
+print(ks_test_result)
+```
+
+Hal ini mengindikasikan bahwa kita menolak hipotesis nol yang menyatakan bahwa residual dari model ARIMA(1,1,1) mengikuti distribusi normal. Dengan kata lain, ada bukti yang sangat kuat bahwa residual tidak terdistribusi normal, yang dapat memengaruhi validitas model dalam analisis lebih lanjut.
+
+```{r}
+# Plot Q-Q untuk memeriksa normalitas residual
+qqnorm(residuals_m3, main="Q-Q Plot of Residuals")
+qqline(residuals_m3, col = "red")
+
+# Uji Ljung-Box untuk memeriksa autocorrelation residuals
+ljung_box_test <- Box.test(residuals_m3, lag = 12, type = "Ljung-Box")
+cat("Ljung-Box Test: Chi-squared =", ljung_box_test$statistic, ", p-value =", ljung_box_test$p.value, "\n")
+```
+
+- Hipotesis Nol: Hipotesis nol dari uji ini adalah bahwa tidak ada autokorelasi pada residual.
+- Dalam plot ini, titik residual cenderung mengikuti garis di bagian tengah tetapi mulai menyimpang pada kedua ujungnya. Ini menunjukkan bahwa residual tidak sepenuhnya mengikuti distribusi normal, terutama pada ekor (tail) distribusi.
+- Peningkatan pada sisi kiri dan kanan menunjukkan bahwa ada lebih banyak nilai ekstrem (outlier) daripada yang diharapkan jika residual benar-benar normal.
+
+```{r}
+# Plot residual
+plot(residuals_m3, main = "Residuals dari Model ARIMA(1,1,1)", ylab = "Residual", col = "blue")
+abline(h = 0, col = "red")
+```
+
+Grafik di atas menunjukkan hasil residu dari model ARIMA(1,1,1). Terlihat bahwa nilai residu berkisar antara -500 hingga 500, dengan banyak titik berada di sekitar 0. Ini menunjukkan bahwa model ARIMA(1,1,1) dapat memprediksi nilai dengan baik, karena residunya relatif kecil dan tersebar secara acak. Namun, masih ada beberapa titik yang memiliki nilai residu yang cukup besar, yang mungkin menunjukkan bahwa model masih belum sempurna dan perlu diperbaiki lebih lanjut.
+
+```{r}
+# Menampilkan ringkasan dari model m3
+summary(m3)
+```
+
+Secara keseluruhan, model ARIMA(1,1,1) menunjukkan performa yang cukup baik dengan koefisien yang signifikan dan error measures yang relatif rendah, meskipun masih ada ruang untuk perbaikan dalam hal prediksi.
