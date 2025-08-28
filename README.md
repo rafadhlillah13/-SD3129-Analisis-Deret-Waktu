@@ -7,3 +7,28 @@
 ## 📋 Deskripsi Mata Kuliah
 
 Mata kuliah **Analisis Deret Waktu** (SD3129) membahas konsep-konsep dasar dan metode analisis untuk data deret waktu menggunakan bahasa pemrograman R. Melalui mata kuliah ini, mahasiswa akan mempelajari teknik-teknik untuk memodelkan, menganalisis, dan memprediksi data yang dikumpulkan secara berurutan dalam waktu.
+
+## 🎯 Topik Analisis
+
+Repository ini fokus pada:
+- **Model ARCH** (Autoregressive Conditional Heteroskedasticity)
+- **Model GARCH** (Generalized ARCH)
+- Analisis volatilitas dalam deret waktu
+- Pemodelan conditional variance
+- Forecasting volatilitas
+
+## 🛠️ Teknologi yang Digunakan
+
+- **R Programming**
+- **R Markdown** untuk dokumentasi dan reporting
+- Package **`rugarch`** untuk model GARCH
+- Package **`tseries`** untuk analisis deret waktu
+- Package **`forecast`** untuk forecasting
+- **`ggplot2`** untuk visualisasi
+
+## 🚀 Cara Menggunakan
+
+1. Clone repository ini
+2. Buka file `.Rmd` di RStudio
+3. Install package yang diperlukan
+4. Knit file untuk menghasilkan output HTML/PDF
